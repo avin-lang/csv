@@ -20,7 +20,7 @@ missingIndex()
     should_trap: "a CSV delimiter is an ASCII character other than a quote or a line end, not U+0022"
 )
 quoteDelimiter()
-  csv.parse("a", '"')
+  val _ = csv.parse("a", '"') // the call traps before it answers
 
 @test("a line feed cannot be a delimiter", should_trap: "not U+000A")
 lineFeedDelimiter()
