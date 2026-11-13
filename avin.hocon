@@ -1,0 +1,1 @@
+package { name = "csv", version = "0.0.1", description = "Comma-separated values as RFC 4180 writes them: reading text, bytes or a stream, records by column name, any ASCII delimiter, and writing that quotes only where it must" }

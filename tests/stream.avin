@@ -1,0 +1,88 @@
+module tests
+
+// Reading from a source a piece at a time: every byte its own piece, so a byte order mark, a line end
+// of two bytes, a doubled quote and a multi-byte character all cross pieces; a file read from disk;
+// and a source of many rows generated as they are asked for, which a reader takes in bounded pieces.
+import dev.avinlang.csv as csv
+import dev.avinlang.csv.CsvReader
+import avin.fs
+import avin.io.IoError
+import avin.io.Reader
+
+// A source giving one byte at a time.
+class Trickle(private val bytes: Array[byte]): Reader
+    private var at = 0
+
+    override read(max: int) -> Result[Array[byte], IoError]
+        val piece = bytes.slice(at, if at < bytes.length then at + 1 else at)
+        at += piece.length
+        Ok(piece)
+
+// Every row a reader of `r` gives.
+all(r: CsvReader) -> Vector[Vector[string]]
+    val rows = Buffer[Vector[string]]()
+    while r.next().ok.get is Some(row)
+        rows.addOne(row)
+    rows.toVector
+
+@test("a source giving a byte at a time reads as the whole text does")
+byteAtATime()
+    val texts = ["\u{FEFF}a,b\r\n\"x\"\"y\",\"日本\r\n😀\"\r\n,\r\rlast", "", "\u{FEFF}", "\u{FE}", "\"\"", "a\r", "\r\n\r\n"]
+    for t in texts
+        assertEq(all(CsvReader.fromReader(Trickle(t.utf8))), csv.parse(t).ok.get)
+    val tsv = "a\tb\n\"c\td\"\te\n"
+    assertEq(all(CsvReader.fromReader(Trickle(tsv.utf8), '\t')), [["a", "b"], ["c\td", "e"]])
+
+@test("an error read a byte at a time is placed as in the whole text")
+errorAcrossPieces()
+    val text = "a,b\n\"x\"\"y\" z\n"
+    val r = CsvReader.fromReader(Trickle(text.utf8))
+    assertEq(r.next().ok.get, Some(["a", "b"]))
+    assertEq(r.next().err.get, csv.parse(text).err.get)
+
+@test("records read a byte at a time")
+recordsAcrossPieces()
+    val r = CsvReader.fromReader(Trickle("k,v\r\n1,\"one\r\n\"\r\n".utf8))
+    val rec = r.nextRecord().ok.get.get
+    assertEq(rec("v"), "one\r\n")
+    assert(r.nextRecord().ok.get.isEmpty)
+
+@test("a file is read through fs.open")
+fromFile()
+    val dir = fs.createTempDir("csv-stream").ok.get
+    val name = dir + "/people.csv"
+    fs.writeText(name, csv.render([["name", "born"], ["Ada", "1815"], ["Grace, \"Amazing\"", "1906"]])).ok.get
+    val r = CsvReader.fromReader(fs.open(name).ok.get)
+    val names = Buffer[string]()
+    while r.nextRecord().ok.get is Some(rec)
+        names.addOne(rec("name"))
+    assertEq(names.toVector, ["Ada", "Grace, \"Amazing\""])
+    fs.removeDirAll(dir).ok.get
+
+// A source of `count` rows, made as they are asked for, each with a quoted field that holds a line
+// break; it never holds the whole text.
+class Rows(private val count: int): Reader
+    private var next = 0
+    private var pending = Array.empty[byte]()
+
+    override read(max: int) -> Result[Array[byte], IoError]
+        if pending.length == 0
+            if next >= count then return Ok(Array.empty[byte]())
+            pending = s"$next,\"line\nbreak $next\",${next * 2}\r\n".utf8
+            next += 1
+        val n = if pending.length < max then pending.length else max
+        val piece = pending.slice(0, n)
+        pending = pending.slice(n, pending.length)
+        Ok(piece)
+
+@test("many rows from a source that makes them as they are asked for")
+manyRows()
+    val r = CsvReader.fromReader(Rows(20000))
+    var rows = 0
+    var sum: long = 0
+    while r.next().ok.get is Some(row)
+        rows += 1
+        sum += long(row(2).toInt())
+    assertEq(rows, 20000)
+    assertEq(sum, long(19999) * 20000)
+    assertEq(r.lastRowLine, long(39999))

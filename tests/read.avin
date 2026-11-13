@@ -1,0 +1,97 @@
+module tests
+
+// Reading CSV text: plain and quoted fields, doubled quotes, delimiters and line breaks inside quotes,
+// the three line ends, a last row with and without its line end, empty fields and trailing
+// delimiters, blank lines passed over, a byte order mark, Unicode, other delimiters, and bytes.
+import dev.avinlang.csv as csv
+
+// The rows `text` reads as, each field in angle brackets, or the error.
+rows(text: string, delimiter: char = ',') -> string = csv.parse(text, delimiter) match
+    Ok(rs) -> rs.map(r -> "[" + r.map(f -> s"<$f>").mkString("|") + "]").mkString(" ")
+    Err(e) -> s"$e"
+
+@test("text with no rows reads as none: empty, line ends alone, a byte order mark alone")
+noRows()
+    assertEq(rows(""), "")
+    assertEq(rows("\n\r\n\r\n\n"), "")
+    assertEq(rows("\u{FEFF}"), "")
+    assertEq(csv.parse("").ok.get.length, 0)
+
+@test("one field, with and without a line end")
+oneField()
+    assertEq(rows("a"), "[<a>]")
+    assertEq(rows("a\n"), "[<a>]")
+
+@test("rows end at a line feed, a carriage return and line feed, or a carriage return alone")
+lineEnds()
+    assertEq(rows("a,b,c\n1,2,3\n"), "[<a>|<b>|<c>] [<1>|<2>|<3>]")
+    assertEq(rows("a,b\n1,2"), "[<a>|<b>] [<1>|<2>]")
+    assertEq(rows("a,b\r\n1,2\r\n"), "[<a>|<b>] [<1>|<2>]")
+    assertEq(rows("a,b\r1,2\r"), "[<a>|<b>] [<1>|<2>]")
+    assertEq(rows("a\nb\r\nc\rd"), "[<a>] [<b>] [<c>] [<d>]")
+
+@test("a line with nothing on it holds no row")
+blankLines()
+    assertEq(rows("a\n\n\nb\r\n\r\nc\n\n"), "[<a>] [<b>] [<c>]")
+
+@test("empty fields, leading and trailing delimiters, and spaces, which are kept")
+emptyFields()
+    assertEq(rows(",\n,,\na,,b\n"), "[<>|<>] [<>|<>|<>] [<a>|<>|<b>]")
+    assertEq(rows("a,b,\n"), "[<a>|<b>|<>]")
+    assertEq(rows(",a\n"), "[<>|<a>]")
+    assertEq(rows(" a , b \n"), "[< a >|< b >]")
+
+@test("quoted fields: empty, doubled quotes, delimiters and line breaks inside")
+quoted()
+    assertEq(rows("\"a\",\"b\"\n"), "[<a>|<b>]")
+    assertEq(rows("\"\"\n"), "[<>]")
+    assertEq(rows("\"\",\"\"\n"), "[<>|<>]")
+    assertEq(rows("\"say \"\"hi\"\"\",x\n"), "[<say \"hi\">|<x>]")
+    assertEq(rows("\"\"\"\"\n"), "[<\">]")
+    assertEq(rows("\"a,b\",c\n"), "[<a,b>|<c>]")
+    assertEq(rows("\"one\ntwo\",x\n"), "[<one\ntwo>|<x>]")
+    assertEq(rows("\"one\r\ntwo\"\r\nnext\r\n"), "[<one\r\ntwo>] [<next>]")
+    assertEq(rows("\"cr\rin\"\r"), "[<cr\rin>]")
+    assertEq(rows("a,\"b\""), "[<a>|<b>]")
+    assertEq(rows("\"a\",\n"), "[<a>|<>]")
+
+@test("a byte order mark at the start of the text is dropped, and kept anywhere else")
+byteOrderMark()
+    assertEq(rows("\u{FEFF}a,b\n"), "[<a>|<b>]")
+    assertEq(rows("\u{FEFF}\"a\",b\n"), "[<a>|<b>]")
+    assertEq(rows("a,\u{FEFF}b\n"), "[<a>|<\u{FEFF}b>]")
+    assertEq(csv.parse("\u{FEFF}x".utf8).ok.get, [["x"]])
+
+@test("Unicode fields read whole")
+unicode()
+    assertEq(rows("日本,😀\n\"é,ü\",ß\n"), "[<日本>|<😀>] [<é,ü>|<ß>]")
+
+@test("another delimiter: tab, semicolon, pipe, space; a comma is then ordinary")
+delimiters()
+    assertEq(rows("a\tb\tc\n\"x\ty\"\tz\n", '\t'), "[<a>|<b>|<c>] [<x\ty>|<z>]")
+    assertEq(rows("a,b\tc\n", '\t'), "[<a,b>|<c>]")
+    assertEq(rows("a;b;\"c;d\"\n", ';'), "[<a>|<b>|<c;d>]")
+    assertEq(rows("|a|\n", '|'), "[<>|<a>|<>]")
+    assertEq(rows("a b  c\n", ' '), "[<a>|<b>|<>|<c>]")
+
+@test("rows may differ in length outside header mode")
+ragged()
+    assertEq(rows("a\nb,c\nd,e,f\n"), "[<a>] [<b>|<c>] [<d>|<e>|<f>]")
+
+@test("text given as UTF-8 bytes reads as the text does")
+bytes()
+    assertEq(csv.parse("x,\"y\nz\"\n".utf8).ok.get, [["x", "y\nz"]])
+    assertEq(csv.parse(Array.empty[byte]()).ok.get, [])
+
+@test("wide rows and long fields")
+large()
+    val wide = Buffer[string]()
+    for i in 0..<1000
+        wide.addOne(s"f$i")
+    val row = csv.parse(wide.mkString(",")).ok.get(0)
+    assertEq(row.length, 1000)
+    assertEq(row(999), "f999")
+    val big = "ab\"\"cd".repeat(20000)
+    val field = csv.parse(s"\"$big\"").ok.get(0)(0)
+    assertEq(field.byteLength, 100000)
+    assertEq(field.take(6), "ab\"cda")

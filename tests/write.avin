@@ -1,0 +1,74 @@
+module tests
+
+// Writing CSV: a field is quoted only where it must be, quotes inside are doubled, rows end with a
+// line feed or, on request, a carriage return and line feed, and everything written reads back as the
+// rows it was written from.
+import dev.avinlang.csv as csv
+import dev.avinlang.csv.CsvWriter
+
+roundTrip(rows: Vector[Vector[string]], delimiter: char = ',', crlf: bool = false) -> bool =
+    csv.parse(csv.render(rows, delimiter, crlf), delimiter).ok.get == rows
+
+@test("plain fields, spaces and empty fields among others are written as they are")
+unquoted()
+    assertEq(csv.renderRow(["plain", "with space", " padded ", ""]), "plain,with space, padded ,\n")
+    assertEq(csv.renderRow(["", ""]), ",\n")
+    assertEq(csv.renderRow(["日本", "ü"]), "日本,ü\n")
+
+@test("a field holding the delimiter, a quote, a carriage return or a line feed is quoted, quotes doubled")
+quotedWhereNeeded()
+    assertEq(csv.renderRow(["a,b", "say \"hi\"", "\""]), "\"a,b\",\"say \"\"hi\"\"\",\"\"\"\"\n")
+    assertEq(csv.renderRow(["line\nbreak", "cr\rhere", "crlf\r\n"]), "\"line\nbreak\",\"cr\rhere\",\"crlf\r\n\"\n")
+    assertEq(csv.renderRow(["é,ü", "😀\"😀"]), "\"é,ü\",\"😀\"\"😀\"\n")
+
+@test("the only field of a row, empty, is quoted; a row of no fields is an empty line")
+emptyRows()
+    assertEq(csv.renderRow([""]), "\"\"\n")
+    assertEq(csv.renderRow([]), "\n")
+    assertEq(csv.render([]), "")
+    assertEq(csv.parse(csv.render([[], ["x"]])).ok.get, [["x"]])
+
+@test("a field beginning with a byte order mark is quoted; one holding it elsewhere is not")
+writeByteOrderMark()
+    assertEq(csv.renderRow(["\u{FEFF}a", "b\u{FEFF}"]), "\"\u{FEFF}a\",b\u{FEFF}\n")
+    assert(roundTrip([["\u{FEFF}first", "\u{FEFF}"], ["x\u{FEFF}"]]))
+
+@test("another delimiter quotes by its own rule")
+otherDelimiters()
+    assertEq(csv.renderRow(["a\tb", "c,d"], '\t'), "\"a\tb\"\tc,d\n")
+    assertEq(csv.renderRow(["a;b", "c,d"], ';'), "\"a;b\";c,d\n")
+
+@test("crlf ends every row with a carriage return and line feed")
+crlf()
+    assertEq(csv.renderRow(["x", "y"], crlf = true), "x,y\r\n")
+    assertEq(csv.render([["h1", "h2"], ["1", "2"]], crlf = true), "h1,h2\r\n1,2\r\n")
+
+@test("a writer over any Writer: rows, a header and records")
+writer()
+    val out = StringWriter()
+    val w = CsvWriter(out)
+    w.writeRow(["id", "name"])
+    w.writeRows([["1", "Ada"], ["2", "Grace, \"Amazing\""]])
+    assertEq(out.text, "id,name\n1,Ada\n2,\"Grace, \"\"Amazing\"\"\"\n")
+    val recs = csv.parseRecords(out.text).ok.get
+    val again = StringWriter()
+    val w2 = CsvWriter(again, '|')
+    w2.writeHeader(recs(0).header)
+    for r in recs
+        w2.writeRecord(r)
+    assertEq(again.text, "id|name\n1|Ada\n2|\"Grace, \"\"Amazing\"\"\"\n")
+
+@test("everything written reads back as the rows it was written from")
+roundTrips()
+    val tricky: Vector[Vector[string]] = [["", "a"], [""], ["\"", "\"\""], [",", ",,"], ["\n", "\r\n", "\r"], ["日本", "😀"],
+        [" ", "\t"], ["a", ""]]
+    assert(roundTrip(tricky))
+    assert(roundTrip(tricky, crlf = true))
+    assert(roundTrip(tricky, '\t'))
+    assert(roundTrip(tricky, ';'))
+    assert(roundTrip([]))
+    assert(roundTrip([["only"]]))
+    val many = Buffer[Vector[string]]()
+    for i in 0..<300
+        many.addOne([s"$i", s"q\"$i", if i % 2 == 0 then "" else "x,y"])
+    assert(roundTrip(many.toVector))

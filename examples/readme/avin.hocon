@@ -1,0 +1,5 @@
+package { name = "readme", version = "0.0.1", description = "The README's examples, run: reading, records, a stream from a file and writing" }
+
+dependencies {
+  csv { path = "../.." }
+}

@@ -1,0 +1,216 @@
+module dev.avinlang.csv
+
+// Reading CSV text as it arrives, a row at a time: from a file, a connection or any other `Reader`, a
+// piece at a time. The reader holds the piece it is working through and the row it is reading, so a
+// file larger than memory reads in a bounded amount of it however many rows it has.
+
+import avin.io.IoError
+import avin.io.Reader
+
+// How many bytes a reader asks its source for at a time.
+val csvChunkSize: int = 65536
+
+// A source with nothing in it, behind a reader of text already in hand.
+private object NoInput: Reader
+    override read(max: int) -> Result[Array[byte], IoError] = Ok(Array.empty[byte]())
+
+// Reads rows from a source, by the rules `parse` reads. `next` gives each row in turn; `readHeader`
+// and `nextRecord` read the first row as a header and each row after it as a record. Text that breaks
+// the rules, or a failure to read it, is the `Err` of that call and of every call after it; a record
+// whose number of fields is not the header's is the `Err` of that call only, and the next call reads
+// the row after it.
+//
+// A reader belongs to the thread that reads it, as its source does.
+class CsvReader(private val source: Reader, private val delimiter: char, private var chunk: Array[byte])
+    private val delim: int = delimiterByte(delimiter)
+    // The next byte to read in `chunk`.
+    private var pos = 0
+    private var ended = false
+    private var started = false
+    // The line and column of `pos`.
+    private var line: long = 1
+    private var column: long = 1
+    // The line the last row read began on.
+    private var rowLine: long = 1
+    private var failure: Option[CsvError] = None
+    private var readFailure: Option[CsvError] = None
+    private var header: Option[CsvHeader] = None
+    // The bytes of the field being read, and the fields of the row.
+    private val field = Buffer[byte]()
+    private val fields = Buffer[string]()
+
+    // The next row's fields, or `None` at the end of the text.
+    next() -> Result[Option[Vector[string]], CsvError]
+        if failure is Some(e) then return Err(e)
+        val r = row()
+        if r is Err(e) then failure = Some(e)
+        r
+
+    // The header: the next row's fields, read by the first call, which is ordinarily made before any
+    // row is read, so the header is the text's first row. Text with no rows left has a header of no
+    // names. Every later call gives the same header.
+    readHeader() -> Result[CsvHeader, CsvError]
+        if header is Some(h) then return Ok(h)
+        if failure is Some(e) then return Err(e)
+        val names = next()?.getOrElse(Vector.empty[string]())
+        val h = CsvHeader(names)
+        header = Some(h)
+        Ok(h)
+
+    // The next row as a record under the header, read first where it has not been; `None` at the end
+    // of the text.
+    nextRecord() -> Result[Option[CsvRecord], CsvError]
+        val h = readHeader()?
+        val fieldsOf = next()? match
+            Some(row) -> row
+            None -> return Ok(None)
+        if fieldsOf.length != h.size
+            return Err(CsvError(s"the row has ${count(fieldsOf.length)} where the header names ${h.size}", rowLine, 1))
+        Ok(Some(CsvRecord(h, fieldsOf)))
+
+    // The line the last row given began on, counted from 1.
+    lastRowLine -> long = rowLine
+
+    private row() -> Result[Option[Vector[string]], CsvError]
+        if !started
+            started = true
+            skipByteOrderMark()
+        loop
+            val b = peekByte()
+            if b < 0 then return endOfText()
+            if b == 0x0a || b == 0x0d then takeLineEnd() else break
+        rowLine = line
+        fields.clear()
+        loop
+            fields.addOne(readField()?)
+            val b = peekByte()
+            if b != delim
+                if b >= 0 then takeLineEnd()
+                break
+            take()
+        if readFailure is Some(e) then return Err(e)
+        Ok(Some(fields.toVector))
+
+    private endOfText() -> Result[Option[Vector[string]], CsvError]
+        if readFailure is Some(e) then return Err(e)
+        Ok(None)
+
+    // One field, at `pos`, leaving `pos` at what follows it: the delimiter, a line end or the end of
+    // the text.
+    private readField() -> Result[string, CsvError]
+        field.clear()
+        val startLine = line
+        val startColumn = column
+        if peekByte() == int('"') then return quoted()
+        loop
+            val b = peekByte()
+            if b < 0 || b == delim || b == 0x0a || b == 0x0d then break
+            if b == int('"') then return Err(fault("a quote inside a field that does not begin with one"))
+            field.addOne(byte(b))
+            take()
+        text(startLine, startColumn)
+
+    private quoted() -> Result[string, CsvError]
+        val openLine = line
+        val openColumn = column
+        take()
+        loop
+            val b = peekByte()
+            if b < 0
+                if readFailure is Some(e) then return Err(e)
+                return Err(CsvError("a quoted field is not closed", openLine, openColumn))
+            take()
+            if b == int('"')
+                if peekByte() != int('"') then break
+                take()
+            field.addOne(byte(b))
+        val after = peekByte()
+        if after >= 0 && after != delim && after != 0x0a && after != 0x0d
+            return Err(fault("expected the delimiter or the end of the line after a quoted field"))
+        text(openLine, openColumn)
+
+    // The field's bytes as text, or an error at its start where they are not UTF-8.
+    private text(startLine: long, startColumn: long) -> Result[string, CsvError] = string.fromUtf8(field.toArray()) match
+        Ok(s) -> Ok(s)
+        Err(_) -> Err(CsvError("a field that is not UTF-8", startLine, startColumn))
+
+    private skipByteOrderMark()
+        ensure(3)
+        if chunk.length - pos >= 3 && chunk(pos) == byte(0xef) && chunk(pos + 1) == byte(0xbb) && chunk(pos + 2) == byte(0xbf)
+            pos += 3
+
+    // Moves past the line end at `pos`: a line feed, a carriage return, or the two together.
+    private takeLineEnd()
+        val b = peekByte()
+        take()
+        if b == 0x0d && peekByte() == 0x0a then take()
+
+    // The byte at `pos`, or -1 at the end of the text.
+    private peekByte() -> int
+        if pos >= chunk.length && !refill() then return -1
+        int(chunk(pos))
+
+    // Moves past the byte at `pos`, which is there, counting the line and column. A carriage return
+    // ends a line unless a line feed follows it, which ends it instead.
+    private take()
+        val b = int(chunk(pos))
+        pos += 1
+        if b == 0x0a
+            line += 1
+            column = 1
+        elif b == 0x0d
+            if peekByte() != 0x0a
+                line += 1
+                column = 1
+        elif (b & 0xc0) != 0x80
+            column += 1
+
+    private fault(message: string) -> CsvError = CsvError(message, line, column)
+
+    // Reads the next piece of the text once `chunk` is used up; false at the end of the text.
+    private refill() -> bool
+        if pos < chunk.length then return true
+        if ended then return false
+        chunk = fetch()
+        pos = 0
+        chunk.length > 0
+
+    // Reads until `n` bytes are left in `chunk`, or the text ends first.
+    private ensure(n: int)
+        while chunk.length - pos < n && !ended
+            val more = fetch()
+            if more.length > 0
+                val joined = Buffer[byte]()
+                for i in pos..<chunk.length
+                    joined.addOne(chunk(i))
+                for b in more
+                    joined.addOne(b)
+                pos = 0
+                chunk = joined.toArray()
+
+    // The next piece from the source, empty once it ends or fails to read.
+    private fetch() -> Array[byte]
+        source.read(csvChunkSize) match
+            Ok(more) ->
+                if more.length == 0 then ended = true
+                more
+            Err(e) ->
+                ended = true
+                readFailure = Some(CsvError(s"the text could not be read: ${e.message}", line, column))
+                Array.empty[byte]()
+
+// `n` fields, in words: `1 field`, `3 fields`.
+private count(n: int) -> string
+count(1) = "1 field"
+count(n) = s"$n fields"
+
+object CsvReader
+    // A reader of the text `source` gives, read a piece at a time as rows are asked for, its fields
+    // separated by `delimiter`.
+    fromReader(source: Reader, delimiter: char = ',') -> CsvReader = CsvReader(source, delimiter, Array.empty[byte]())
+
+    // A reader of `text`.
+    fromString(text: string, delimiter: char = ',') -> CsvReader = CsvReader(NoInput, delimiter, text.utf8)
+
+    // A reader of text given as its UTF-8 bytes.
+    fromBytes(bytes: Array[byte], delimiter: char = ',') -> CsvReader = CsvReader(NoInput, delimiter, bytes)

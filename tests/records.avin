@@ -1,0 +1,116 @@
+module tests
+
+// Header mode: the first row names the columns and every row after it is a record whose fields are
+// found by name or position. A row with more or fewer fields than the header is an error at its own
+// line, and the reader goes on with the next row.
+import dev.avinlang.csv as csv
+import dev.avinlang.csv.{CsvReader, CsvRecord}
+
+people() -> Vector[CsvRecord] =
+    csv.parseRecords("name,born,\"note, quoted\"\r\nAda,1815,first\r\n\"Grace \"\"Amazing\"\"\",1906,\"two\nlines\"\r\n").ok.get
+
+@test("fields are found by their column's name and by position")
+byName()
+    val ps = people()
+    assertEq(ps.length, 2)
+    val ada = ps(0)
+    assertEq(ada("name"), "Ada")
+    assertEq(ada("born"), "1815")
+    assertEq(ada.get("note, quoted"), Some("first"))
+    assertEq(ada.get("missing"), None)
+    assertEq(ada(0), "Ada")
+    assertEq(ada.get(2), Some("first"))
+    assertEq(ada.get(3), None)
+    assertEq(ada.get(-1), None)
+    assertEq(ps(1)("name"), "Grace \"Amazing\"")
+    assertEq(ps(1)("note, quoted"), "two\nlines")
+    assertEq(ps.map(p -> p("born").toInt()).sum, 3721)
+
+@test("a record's header, size, `has`, map and display")
+recordParts()
+    val ada = people()(0)
+    assert(ada.has("born"))
+    assert(!ada.has("Born"))
+    assert(!ada.has(""))
+    assertEq(ada.size, 3)
+    assertEq(ada.header.names, ["name", "born", "note, quoted"])
+    assertEq(ada.header.size, 3)
+    assertEq(ada.header.column("born"), Some(1))
+    assertEq(ada.header.column("x"), None)
+    assertEq(s"${ada.header}", "[name, born, note, quoted]")
+    assertEq(ada.fields, ["Ada", "1815", "first"])
+    assertEq(ada.toMap("born"), "1815")
+    assertEq(ada.toMap.size, 3)
+    assertEq(s"$ada", "{name: Ada, born: 1815, note, quoted: first}")
+
+@test("text with no rows, or a header alone, has no records")
+noRecords()
+    assertEq(csv.parseRecords("").ok.get.length, 0)
+    assertEq(csv.parseRecords("\n\n").ok.get.length, 0)
+    assertEq(csv.parseRecords("a,b\n").ok.get.length, 0)
+    assertEq(csv.parseRecords("a,b").ok.get.length, 0)
+    assertEq(csv.parseRecords("a\n\n").ok.get.length, 0)
+
+@test("a quoted empty field is a record of one empty field under a header of one column")
+oneEmptyField()
+    val rs = csv.parseRecords("a\n\"\"\n").ok.get
+    assertEq(rs.length, 1)
+    assertEq(rs(0)("a"), "")
+
+@test("a row with more or fewer fields than the header is an error at its own line")
+raggedRows()
+    assertEq(s"${csv.parseRecords("a,b\n1,2,3\n").err.get}", "the row has 3 fields where the header names 2 at line 2, column 1")
+    assertEq(s"${csv.parseRecords("a,b\n1,2\n\n3\n").err.get}", "the row has 1 field where the header names 2 at line 4, column 1")
+
+@test("a name written twice finds its first column")
+duplicateNames()
+    val r = csv.parseRecords("k,k,v\n1,2,3\n").ok.get(0)
+    assertEq(r("k"), "1")
+    assertEq(r(1), "2")
+    assertEq(r.toMap("k"), "1")
+    assertEq(r.toMap.size, 2)
+
+@test("Unicode names, a byte order mark before the header, another delimiter, and bytes")
+namesAndForms()
+    val u = csv.parseRecords("\u{FEFF}名前,😀\n太郎,ok\n").ok.get(0)
+    assertEq(u("名前"), "太郎")
+    assertEq(u("😀"), "ok")
+    assertEq(csv.parseRecords("a\tb\n1\t2,3\n", '\t').ok.get(0)("b"), "2,3")
+    assertEq(s"${csv.parseRecords("x,y\n1,2\n".utf8).ok.get(0)}", "{x: 1, y: 2}")
+
+@test("a reader in header mode goes on past a ragged row, and reads the header once")
+readerSkipsRagged()
+    val r = CsvReader.fromString("id,v\n1,a\n2\n3,c,extra\n4,d\n")
+    assertEq(r.readHeader().ok.get.names, ["id", "v"])
+    assert(r.readHeader().ok.get === r.readHeader().ok.get)
+    val seen = Buffer[string]()
+    loop
+        r.nextRecord() match
+            Ok(Some(rec)) -> seen.addOne(s"line ${r.lastRowLine}: ${rec("id")}=${rec("v")}")
+            Ok(None) -> break
+            Err(e) -> seen.addOne(s"skipped: $e")
+    assertEq(seen.toVector, ["line 2: 1=a", "skipped: the row has 1 field where the header names 2 at line 3, column 1",
+        "skipped: the row has 3 fields where the header names 2 at line 4, column 1", "line 5: 4=d"])
+    assertEq(r.nextRecord().ok.get.isEmpty, true)
+    assertEq(r.next().ok.get, None)
+
+@test("nextRecord reads the header itself where readHeader was not called")
+implicitHeader()
+    val r = CsvReader.fromString("n\n1\n2\n")
+    assertEq(r.nextRecord().ok.get.get.get("n"), Some("1"))
+    assertEq(r.nextRecord().ok.get.get.get("n"), Some("2"))
+    assert(r.nextRecord().ok.get.isEmpty)
+    val empty = CsvReader.fromString("")
+    assertEq(empty.readHeader().ok.get.size, 0)
+    assert(empty.nextRecord().ok.get.isEmpty)
+
+@test("records kept from a parse share the one header they were read under")
+sharedHeader()
+    val lines = Buffer[string]()
+    lines.addOne("i,sq")
+    for i in 0..<200
+        lines.addOne(s"$i,${i * i}")
+    val rs = csv.parseRecords(lines.mkString("\n")).ok.get
+    assertEq(rs.length, 200)
+    assertEq(rs(199)("sq"), "39601")
+    assert(rs(0).header === rs(199).header)
