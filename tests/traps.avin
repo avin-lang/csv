@@ -9,29 +9,32 @@ record() -> csv.CsvRecord = csv.parseRecords("a,b\n1,2\n").ok.get(0)
 
 @test("a record's apply by name traps naming the column", should_trap: "no column \"c\" in this CSV record")
 missingName()
-    record()("c")
+  record()("c")
 
 @test("a record's apply by index traps naming the index", should_trap: "no column 2 in this CSV record")
 missingIndex()
-    record()(2)
+  record()(2)
 
-@test("a quote cannot be a delimiter", should_trap: "a CSV delimiter is an ASCII character other than a quote or a line end, not U+0022")
+@test(
+    "a quote cannot be a delimiter",
+    should_trap: "a CSV delimiter is an ASCII character other than a quote or a line end, not U+0022"
+)
 quoteDelimiter()
-    csv.parse("a", '"')
+  csv.parse("a", '"')
 
 @test("a line feed cannot be a delimiter", should_trap: "not U+000A")
 lineFeedDelimiter()
-    CsvReader.fromString("a", '\n')
+  CsvReader.fromString("a", '\n')
 
 @test("a carriage return cannot be a delimiter", should_trap: "not U+000D")
 carriageReturnDelimiter()
-    csv.renderRow(["a"], '\r')
+  csv.renderRow(["a"], '\r')
 
 @test("a delimiter outside ASCII is refused, by the writer too", should_trap: "not U+00E9")
 nonAsciiDelimiter()
-    CsvWriter(StringWriter(), 'é')
+  CsvWriter(StringWriter(), 'é')
 
 @test("the last ASCII character is a delimiter like any other")
 lastAscii()
-    assertEq(csv.parse("a\u{7F}b", '\u{7F}').ok.get, [["a", "b"]])
-    assertEq(csv.renderRow(["a", "b"], '\u{7F}'), "a\u{7F}b\n")
+  assertEq(csv.parse("a\u{7F}b", '\u{7F}').ok.get, [["a", "b"]])
+  assertEq(csv.renderRow(["a", "b"], '\u{7F}'), "a\u{7F}b\n")

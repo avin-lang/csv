@@ -17,112 +17,122 @@ data CsvError(message: string, line: long, column: long)
 impl Error for CsvError
 
 impl Display for CsvError
-    display(out: Writer, spec: FormatSpec)
-        out.writeField(s"$message at line $line, column $column", spec)
+  display(out: Writer, spec: FormatSpec)
+    out.writeField(s"$message at line $line, column $column", spec)
 
 // The names of a header row's columns, in their order.
 class CsvHeader(val names: Vector[string])
-    // Each name's column: the first column of that name, where a name is written more than once.
-    private val index: HashMap[string, int] = indexOf(names)
+  // Each name's column: the first column of that name, where a name is written more than once.
+  private val index: HashMap[string, int] = indexOf(names)
 
-    // How many columns the header names.
-    size -> int = names.length
+  // How many columns the header names.
+  size -> int = names.length
 
-    // The column named `name`, or `None` where the header has no column of that name.
-    column(name: string) -> Option[int] = index.get(name)
+  // The column named `name`, or `None` where the header has no column of that name.
+  column(name: string) -> Option[int] = index.get(name)
 
 // A header displays as its names: `[name, born]`.
 impl Display for CsvHeader
-    display(out: Writer, spec: FormatSpec) = out.writeField(s"$names", spec)
+  display(out: Writer, spec: FormatSpec) = out.writeField(s"$names", spec)
 
 // Each name of `names` bound to its first column.
 private indexOf(names: Vector[string]) -> HashMap[string, int]
-    var index = HashMap.empty[string, int]()
-    var i = names.length - 1
-    while i >= 0
-        index = index.updated(names(i), i)
-        i -= 1
-    index
+  var index = HashMap.empty[string, int]()
+  var i = names.length - 1
+  while i >= 0
+    index = index.updated(names(i), i)
+    i -= 1
+  index
 
 // A row read under a header: its fields, found by their column's name or by position. A record always
 // has exactly as many fields as its header has names; a row with any other number is an error.
 class CsvRecord(val header: CsvHeader, val fields: Vector[string])
-    // The field in the column named `name`, or `None` where the header has no such column.
-    get(name: string) -> Option[string] = header.column(name).map(i -> fields(i))
+  // The field in the column named `name`, or `None` where the header has no such column.
+  get(name: string) -> Option[string] = header.column(name).map(i -> fields(i))
 
-    // The field at `index`, counted from 0, or `None` where there is no such column.
-    get(index: int) -> Option[string] = if 0 <= index < fields.length then Some(fields(index)) else None
+  // The field at `index`, counted from 0, or `None` where there is no such column.
+  get(index: int) -> Option[string] = if 0 <= index < fields.length then Some(fields(index)) else None
 
-    // As `get(name)`, and a trap naming the column where the header has none of that name.
-    apply(name: string) -> string
-        if get(name) is Some(field) then return field
-        fail(s"no column \"$name\" in this CSV record")
+  // As `get(name)`, and a trap naming the column where the header has none of that name.
+  apply(name: string) -> string
+    if get(name) is Some(field) then return field
+    fail(s"no column \"$name\" in this CSV record")
 
-    // As `get(index)`, and a trap naming the index where there is no such column.
-    apply(index: int) -> string
-        if get(index) is Some(field) then return field
-        fail(s"no column $index in this CSV record")
+  // As `get(index)`, and a trap naming the index where there is no such column.
+  apply(index: int) -> string
+    if get(index) is Some(field) then return field
+    fail(s"no column $index in this CSV record")
 
-    // Whether the header names a column `name`.
-    has(name: string) -> bool = header.column(name).isDefined
+  // Whether the header names a column `name`.
+  has(name: string) -> bool = header.column(name).isDefined
 
-    // How many fields the record holds.
-    size -> int = fields.length
+  // How many fields the record holds.
+  size -> int = fields.length
 
-    // The record as a map from each column's name to its field; where a name is written more than
-    // once, its first column's field.
-    toMap -> HashMap[string, string]
-        var m = HashMap.empty[string, string]()
-        var i = fields.length - 1
-        while i >= 0
-            m = m.updated(header.names(i), fields(i))
-            i -= 1
-        m
+  // The record as a map from each column's name to its field; where a name is written more than
+  // once, its first column's field.
+  toMap -> HashMap[string, string]
+    var m = HashMap.empty[string, string]()
+    var i = fields.length - 1
+    while i >= 0
+      m = m.updated(header.names(i), fields(i))
+      i -= 1
+    m
 
 // A record displays as its fields named by their columns: `{name: Ada, born: 1815}`.
 impl Display for CsvRecord
-    display(out: Writer, spec: FormatSpec)
-        val text = StringWriter()
-        text.writeChar('{')
-        for i in 0..<fields.length
-            if i > 0 then text.write(", ")
-            text.write(header.names(i))
-            text.write(": ")
-            text.write(fields(i))
-        text.writeChar('}')
-        out.writeField(text.text, spec)
+  display(out: Writer, spec: FormatSpec)
+    val text = StringWriter()
+    text.writeChar('{')
+    for i in 0 ..< fields.length
+      if i > 0 then text.write(", ")
+      text.write(header.names(i))
+      text.write(": ")
+      text.write(fields(i))
+    text.writeChar('}')
+    out.writeField(text.text, spec)
 
 // Every row of `text`, each a vector of its fields, or the first thing wrong with it. A leading byte
 // order mark is not part of the first field.
-parse(text: string, delimiter: char = ',') -> Result[Vector[Vector[string]], CsvError] = rowsOf(CsvReader.fromString(text, delimiter))
+parse(text: string, delimiter: char = ',') -> Result[Vector[Vector[string]], CsvError] = rowsOf(
+  CsvReader.fromString(text, delimiter)
+)
 
 // As `parse(text)`, for text given as its UTF-8 bytes; a field that is not UTF-8 is an error at its
 // start.
-parse(bytes: Array[byte], delimiter: char = ',') -> Result[Vector[Vector[string]], CsvError] = rowsOf(CsvReader.fromBytes(bytes, delimiter))
+parse(
+    bytes: Array[byte],
+    delimiter: char = ','
+) -> Result[Vector[Vector[string]], CsvError] = rowsOf(CsvReader.fromBytes(bytes, delimiter))
 
 // The rows of `text` after its first, the header, each a record whose fields are found by their
 // column's name; an error where a row's number of fields is not the header's. Text with no rows at
 // all has no records.
-parseRecords(text: string, delimiter: char = ',') -> Result[Vector[CsvRecord], CsvError] = recordsOf(CsvReader.fromString(text, delimiter))
+parseRecords(text: string, delimiter: char = ',') -> Result[Vector[CsvRecord], CsvError] = recordsOf(
+  CsvReader.fromString(text, delimiter)
+)
 
 // As `parseRecords(text)`, for text given as its UTF-8 bytes.
-parseRecords(bytes: Array[byte], delimiter: char = ',') -> Result[Vector[CsvRecord], CsvError] = recordsOf(CsvReader.fromBytes(bytes, delimiter))
+parseRecords(
+    bytes: Array[byte],
+    delimiter: char = ','
+) -> Result[Vector[CsvRecord], CsvError] = recordsOf(CsvReader.fromBytes(bytes, delimiter))
 
 private rowsOf(r: CsvReader) -> Result[Vector[Vector[string]], CsvError]
-    val rows = Buffer[Vector[string]]()
-    while r.next()? is Some(row)
-        rows.addOne(row)
-    Ok(rows.toVector)
+  val rows = Buffer[Vector[string]]()
+  while r.next()? is Some(row)
+    rows.addOne(row)
+  Ok(rows.toVector)
 
 private recordsOf(r: CsvReader) -> Result[Vector[CsvRecord], CsvError]
-    val records = Buffer[CsvRecord]()
-    while r.nextRecord()? is Some(record)
-        records.addOne(record)
-    Ok(records.toVector)
+  val records = Buffer[CsvRecord]()
+  while r.nextRecord()? is Some(record)
+    records.addOne(record)
+  Ok(records.toVector)
 
 // The delimiter `c` as the byte it is written as; a trap where it cannot separate fields: a quote, a
 // line end, or a character outside ASCII.
 private delimiterByte(c: char) -> int
-    if c == '"' || c == '\r' || c == '\n' || int(c) >= 0x80
-        fail(f"a CSV delimiter is an ASCII character other than a quote or a line end, not U+${int(c)}%04X")
-    int(c)
+  if c == '"' || c == '\r' || c == '\n' || int(c) >= 0x80
+    fail(f"a CSV delimiter is an ASCII character other than a quote or a line end, not U+${int(c)}%04X")
+  int(c)

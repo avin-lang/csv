@@ -8,50 +8,50 @@ module dev.avinlang.csv
 // carriage return and line feed where `crlf` is true, as RFC 4180 writes them; a row of no fields is
 // a line with nothing on it, which a reader passes over.
 class CsvWriter(private val out: Writer, private val delimiter: char = ',', private val crlf: bool = false)
-    private val delim: int = delimiterByte(delimiter)
+  private val delim: int = delimiterByte(delimiter)
 
-    // One row of `fields`.
-    writeRow(fields: Vector[string])
-        for i in 0..<fields.length
-            if i > 0 then out.writeChar(delimiter)
-            val f = fields(i)
-            if mustQuote(f, delimiter) || (f.isEmpty && fields.length == 1)
-                writeQuoted(f)
-            else
-                out.write(f)
-        out.write(if crlf then "\r\n" else "\n")
+  // One row of `fields`.
+  writeRow(fields: Vector[string])
+    for i in 0 ..< fields.length
+      if i > 0 then out.writeChar(delimiter)
+      val f = fields(i)
+      if mustQuote(f, delimiter) || (f.isEmpty && fields.length == 1)
+        writeQuoted(f)
+      else
+        out.write(f)
+    out.write(if crlf then "\r\n" else "\n")
 
-    // Each row of `rows`, in order.
-    writeRows(rows: Vector[Vector[string]])
-        for r in rows
-            writeRow(r)
+  // Each row of `rows`, in order.
+  writeRows(rows: Vector[Vector[string]])
+    for r in rows
+      writeRow(r)
 
-    // A record's fields, in its header's order.
-    writeRecord(record: CsvRecord) = writeRow(record.fields)
+  // A record's fields, in its header's order.
+  writeRecord(record: CsvRecord) = writeRow(record.fields)
 
-    // The names of a header's columns, as a row.
-    writeHeader(header: CsvHeader) = writeRow(header.names)
+  // The names of a header's columns, as a row.
+  writeHeader(header: CsvHeader) = writeRow(header.names)
 
-    private writeQuoted(f: string)
-        out.writeChar('"')
-        for c in f.chars
-            if c == '"' then out.writeChar('"')
-            out.writeChar(c)
-        out.writeChar('"')
+  private writeQuoted(f: string)
+    out.writeChar('"')
+    for c in f.chars
+      if c == '"' then out.writeChar('"')
+      out.writeChar(c)
+    out.writeChar('"')
 
 // Whether `field` must be quoted to read back as itself: where it holds the delimiter, a quote or a
 // line break, or begins with a byte order mark, which a reader drops from the start of the text.
 private mustQuote(field: string, delimiter: char) -> bool =
-    field.startsWith("\u{FEFF}") || field.chars.exists(c -> c == delimiter || c == '"' || c == '\r' || c == '\n')
+  field.startsWith("\u{FEFF}") || field.chars.exists(c -> c == delimiter || c == '"' || c == '\r' || c == '\n')
 
 // `rows` as CSV text, a line each, as a `CsvWriter` writes them.
 render(rows: Vector[Vector[string]], delimiter: char = ',', crlf: bool = false) -> string
-    val out = StringWriter()
-    CsvWriter(out, delimiter, crlf).writeRows(rows)
-    out.text
+  val out = StringWriter()
+  CsvWriter(out, delimiter, crlf).writeRows(rows)
+  out.text
 
 // One row as CSV text, with its line end.
 renderRow(fields: Vector[string], delimiter: char = ',', crlf: bool = false) -> string
-    val out = StringWriter()
-    CsvWriter(out, delimiter, crlf).writeRow(fields)
-    out.text
+  val out = StringWriter()
+  CsvWriter(out, delimiter, crlf).writeRow(fields)
+  out.text

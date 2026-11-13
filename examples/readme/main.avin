@@ -6,26 +6,26 @@ import avin.fs
 
 // The sum of the "bytes" column of a log far larger than memory.
 totalBytes(name: string) -> Result[long, Error]
-    val r = CsvReader.fromReader(fs.open(name)?)
-    var sum: long = 0
-    while r.nextRecord()? is Some(rec)
-        sum += long(rec("bytes").toInt())
-    Ok(sum)
+  val r = CsvReader.fromReader(fs.open(name)?)
+  var sum: long = 0
+  while r.nextRecord()? is Some(rec)
+    sum += long(rec("bytes").toInt())
+  Ok(sum)
 
 main()
-    val rows = csv.parse("name,note\nAda,\"first, and \"\"best\"\"\"\n") match
-        Ok(rs) -> rs
-        Err(e) -> fail(s"bad CSV: $e")
-    println(rows)
-    println(csv.parse("a,\"b"))
-    val people = csv.parseRecords("name,born\nAda,1815\nGrace,1906\n").ok.get
-    for p in people
-        println(s"${p("name")} was born in ${p("born")}")
-    println(people(0))
-    println(people(0).get("died"))
-    print(csv.render([["name", "note"], ["Ada", "first, and \"best\""], [""]]))
-    val dir = fs.createTempDir("csvreadme").ok.get
-    fs.writeText(dir + "/log.csv", "id,bytes\n1,10\n2,32\n").ok.get
-    println(totalBytes(dir + "/log.csv"))
-    println(totalBytes(dir + "/none.csv").isErr)
-    fs.removeDirAll(dir).ok.get
+  val rows = csv.parse("name,note\nAda,\"first, and \"\"best\"\"\"\n") match
+    Ok(rs) -> rs
+    Err(e) -> fail(s"bad CSV: $e")
+  println(rows)
+  println(csv.parse("a,\"b"))
+  val people = csv.parseRecords("name,born\nAda,1815\nGrace,1906\n").ok.get
+  for p in people
+    println(s"${p("name")} was born in ${p("born")}")
+  println(people(0))
+  println(people(0).get("died"))
+  print(csv.render([["name", "note"], ["Ada", "first, and \"best\""], [""]]))
+  val dir = fs.createTempDir("csvreadme").ok.get
+  fs.writeText(dir + "/log.csv", "id,bytes\n1,10\n2,32\n").ok.get
+  println(totalBytes(dir + "/log.csv"))
+  println(totalBytes(dir + "/none.csv").isErr)
+  fs.removeDirAll(dir).ok.get

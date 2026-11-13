@@ -19,11 +19,11 @@ import dev.avinlang.csv as csv
 import dev.avinlang.csv as csv
 
 main()
-    val rows = csv.parse("name,note\nAda,\"first, and \"\"best\"\"\"\n") match
-        Ok(rs) -> rs
-        Err(e) -> fail(s"bad CSV: $e")
-    println(rows)                 // [[name, note], [Ada, first, and "best"]]
-    println(csv.parse("a,\"b"))   // Err(a quoted field is not closed at line 1, column 3)
+  val rows = csv.parse("name,note\nAda,\"first, and \"\"best\"\"\"\n") match
+    Ok(rs) -> rs
+    Err(e) -> fail(s"bad CSV: $e")
+  println(rows)                 // [[name, note], [Ada, first, and "best"]]
+  println(csv.parse("a,\"b"))   // Err(a quoted field is not closed at line 1, column 3)
 ```
 
 | Call | Answers |
@@ -52,11 +52,11 @@ The rules the reader follows:
 import dev.avinlang.csv as csv
 
 main()
-    val people = csv.parseRecords("name,born\nAda,1815\nGrace,1906\n").ok.get
-    for p in people
-        println(s"${p("name")} was born in ${p("born")}")
-    println(people(0))                       // {name: Ada, born: 1815}
-    println(people(0).get("died"))           // None
+  val people = csv.parseRecords("name,born\nAda,1815\nGrace,1906\n").ok.get
+  for p in people
+    println(s"${p("name")} was born in ${p("born")}")
+  println(people(0))                       // {name: Ada, born: 1815}
+  println(people(0).get("died"))           // None
 ```
 
 `CsvRecord` gives a field by its column's name or its position: `r("name")` and `r(0)` trap where
@@ -79,11 +79,11 @@ import avin.fs
 
 // The sum of the "bytes" column of a log far larger than memory.
 totalBytes(name: string) -> Result[long, Error]
-    val r = CsvReader.fromReader(fs.open(name)?)
-    var sum: long = 0
-    while r.nextRecord()? is Some(rec)
-        sum += long(rec("bytes").toInt())
-    Ok(sum)
+  val r = CsvReader.fromReader(fs.open(name)?)
+  var sum: long = 0
+  while r.nextRecord()? is Some(rec)
+    sum += long(rec("bytes").toInt())
+  Ok(sum)
 ```
 
 | Call | Does |
@@ -105,10 +105,10 @@ program can report a bad row and go on.
 import dev.avinlang.csv as csv
 
 main()
-    print(csv.render([["name", "note"], ["Ada", "first, and \"best\""], [""]]))
-    // name,note
-    // Ada,"first, and ""best"""
-    // ""
+  print(csv.render([["name", "note"], ["Ada", "first, and \"best\""], [""]]))
+  // name,note
+  // Ada,"first, and ""best"""
+  // ""
 ```
 
 | Call | Does |

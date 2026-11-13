@@ -10,92 +10,92 @@ import avin.io.{IoError, TimedOut}
 import avin.io.Reader
 
 problem(text: string) -> string = csv.parse(text) match
-    Ok(rs) -> s"ok ${rs.length}"
-    Err(e) -> s"$e"
+  Ok(rs) -> s"ok ${rs.length}"
+  Err(e) -> s"$e"
 
 @test("a quoted field never closed is an error at its opening quote, however many lines it ran on")
 unterminated()
-    assertEq(problem("\"abc"), "a quoted field is not closed at line 1, column 1")
-    assertEq(problem("a,b\n\"abc\ndef\nghi"), "a quoted field is not closed at line 2, column 1")
-    assertEq(problem("x\n\""), "a quoted field is not closed at line 2, column 1")
-    assertEq(problem("a,\"b\"\""), "a quoted field is not closed at line 1, column 3")
-    assertEq(problem("\"\n"), "a quoted field is not closed at line 1, column 1")
+  assertEq(problem("\"abc"), "a quoted field is not closed at line 1, column 1")
+  assertEq(problem("a,b\n\"abc\ndef\nghi"), "a quoted field is not closed at line 2, column 1")
+  assertEq(problem("x\n\""), "a quoted field is not closed at line 2, column 1")
+  assertEq(problem("a,\"b\"\""), "a quoted field is not closed at line 1, column 3")
+  assertEq(problem("\"\n"), "a quoted field is not closed at line 1, column 1")
 
 @test("a quote inside a field that does not begin with one is an error at the quote")
 strayQuote()
-    assertEq(problem("ab\"c\n"), "a quote inside a field that does not begin with one at line 1, column 3")
-    assertEq(problem("a\nb,c\"d\n"), "a quote inside a field that does not begin with one at line 2, column 4")
-    assertEq(problem("😀😀,a\"\n"), "a quote inside a field that does not begin with one at line 1, column 5")
+  assertEq(problem("ab\"c\n"), "a quote inside a field that does not begin with one at line 1, column 3")
+  assertEq(problem("a\nb,c\"d\n"), "a quote inside a field that does not begin with one at line 2, column 4")
+  assertEq(problem("😀😀,a\"\n"), "a quote inside a field that does not begin with one at line 1, column 5")
 
 @test("anything but the delimiter or a line end after a closing quote is an error where it stands")
 afterClosingQuote()
-    val m = "expected the delimiter or the end of the line after a quoted field"
-    assertEq(problem("\"a\"b\n"), s"$m at line 1, column 4")
-    assertEq(problem("\"a\" ,b\n"), s"$m at line 1, column 4")
-    assertEq(problem("\"a\"\"\"x\n"), s"$m at line 1, column 6")
-    assertEq(problem("日本,\"é\"x\n"), s"$m at line 1, column 7")
+  val m = "expected the delimiter or the end of the line after a quoted field"
+  assertEq(problem("\"a\"b\n"), s"$m at line 1, column 4")
+  assertEq(problem("\"a\" ,b\n"), s"$m at line 1, column 4")
+  assertEq(problem("\"a\"\"\"x\n"), s"$m at line 1, column 6")
+  assertEq(problem("日本,\"é\"x\n"), s"$m at line 1, column 7")
 
 @test("lines are counted at every line end, inside quotes too")
 lineCounting()
-    val m = "expected the delimiter or the end of the line after a quoted field"
-    assertEq(problem("\"line\none\r\nline two\rthree\" x\n"), s"$m at line 4, column 7")
-    assertEq(problem("a\rb\r\"c\"d"), s"$m at line 3, column 4")
+  val m = "expected the delimiter or the end of the line after a quoted field"
+  assertEq(problem("\"line\none\r\nline two\rthree\" x\n"), s"$m at line 4, column 7")
+  assertEq(problem("a\rb\r\"c\"d"), s"$m at line 3, column 4")
 
 @test("a field that is not UTF-8 is an error at its start")
 notUtf8()
-    val bad: Array[byte] = [byte(0x61), byte(0x2c), byte(0xff), byte(0x0a)]
-    assertEq(s"${csv.parse(bad).err.get}", "a field that is not UTF-8 at line 1, column 3")
-    val cutOff: Array[byte] = [byte(0x0a), byte(0x22), byte(0xc3), byte(0x22)]
-    assertEq(s"${csv.parse(cutOff).err.get}", "a field that is not UTF-8 at line 2, column 1")
+  val bad: Array[byte] = [byte(0x61), byte(0x2c), byte(0xff), byte(0x0a)]
+  assertEq(s"${csv.parse(bad).err.get}", "a field that is not UTF-8 at line 1, column 3")
+  val cutOff: Array[byte] = [byte(0x0a), byte(0x22), byte(0xc3), byte(0x22)]
+  assertEq(s"${csv.parse(cutOff).err.get}", "a field that is not UTF-8 at line 2, column 1")
 
 @test("an error is data: its message, line and column, equality and a padded display")
 errorData()
-    val e = csv.parse("\"open").err.get
-    assertEq(e.message, "a quoted field is not closed")
-    assertEq(e.line, long(1))
-    assertEq(e.column, long(1))
-    assert(e == CsvError("a quoted field is not closed", 1, 1))
-    assertEq(f"[${e}%50s]", "[  a quoted field is not closed at line 1, column 1]")
+  val e = csv.parse("\"open").err.get
+  assertEq(e.message, "a quoted field is not closed")
+  assertEq(e.line, long(1))
+  assertEq(e.column, long(1))
+  assert(e == CsvError("a quoted field is not closed", 1, 1))
+  assertEq(f"[${e}%50s]", "[  a quoted field is not closed at line 1, column 1]")
 
 firstField(text: string) -> Result[string, Error]
-    val rows = csv.parse(text)?
-    Ok(rows(0)(0))
+  val rows = csv.parse(text)?
+  Ok(rows(0)(0))
 
 @test("`?` carries a CSV error into a Result of any Error")
 asError()
-    assertEq(firstField("a,b").ok.get, "a")
-    assertEq(firstField("a\"").err.get.message, "a quote inside a field that does not begin with one")
+  assertEq(firstField("a,b").ok.get, "a")
+  assertEq(firstField("a\"").err.get.message, "a quote inside a field that does not begin with one")
 
 @test("a reader that met an error gives it on every later call, header and records included")
 sticky()
-    val r = CsvReader.fromString("a,b\nc\"d\ne,f\n")
-    assertEq(r.next().ok.get, Some(["a", "b"]))
-    val e = r.next().err.get
-    assertEq(s"$e", "a quote inside a field that does not begin with one at line 2, column 2")
-    assert(r.next().err.get == e)
-    assert(r.readHeader().err.get == e)
-    assert(r.nextRecord().err.get == e)
-    val first = CsvReader.fromString("\"open\n")
-    assert(first.next().isErr)
-    assert(first.readHeader().isErr)
+  val r = CsvReader.fromString("a,b\nc\"d\ne,f\n")
+  assertEq(r.next().ok.get, Some(["a", "b"]))
+  val e = r.next().err.get
+  assertEq(s"$e", "a quote inside a field that does not begin with one at line 2, column 2")
+  assert(r.next().err.get == e)
+  assert(r.readHeader().err.get == e)
+  assert(r.nextRecord().err.get == e)
+  val first = CsvReader.fromString("\"open\n")
+  assert(first.next().isErr)
+  assert(first.readHeader().isErr)
 
 // A source that gives `text` and then fails.
 class Failing(private val text: string): Reader
-    private var given = false
+  private var given = false
 
-    override read(max: int) -> Result[Array[byte], IoError]
-        if given then return Err(IoError(TimedOut, "read", "the source"))
-        given = true
-        Ok(text.utf8)
+  override read(max: int) -> Result[Array[byte], IoError]
+    if given then return Err(IoError(TimedOut, "read", "the source"))
+    given = true
+    Ok(text.utf8)
 
 @test("a source that fails to read is an error, between rows and inside a field")
 readFailure()
-    val between = CsvReader.fromReader(Failing("a,b\n"))
-    assertEq(between.next().ok.get, Some(["a", "b"]))
-    val e = between.next().err.get
-    assert(e.message.startsWith("the text could not be read: "))
-    assertEq(e.line, long(2))
-    val inside = CsvReader.fromReader(Failing("a,\"b"))
-    assert(inside.next().err.get.message.startsWith("the text could not be read: "))
-    val unquoted = CsvReader.fromReader(Failing("a,b"))
-    assert(unquoted.next().isErr)
+  val between = CsvReader.fromReader(Failing("a,b\n"))
+  assertEq(between.next().ok.get, Some(["a", "b"]))
+  val e = between.next().err.get
+  assert(e.message.startsWith("the text could not be read: "))
+  assertEq(e.line, long(2))
+  val inside = CsvReader.fromReader(Failing("a,\"b"))
+  assert(inside.next().err.get.message.startsWith("the text could not be read: "))
+  val unquoted = CsvReader.fromReader(Failing("a,b"))
+  assert(unquoted.next().isErr)
